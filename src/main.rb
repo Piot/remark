@@ -2,17 +2,11 @@ require 'redcarpet'
 require 'fileutils'
 require 'pathname'
 require 'date'
-
-pages_directory = '_pages/'
-
-header = File.read File.join(pages_directory, 'header.html')
-
-footer = File.read File.join(pages_directory, 'footer.html')
-settings_content = File.read File.join(pages_directory, 'settings.rb')
-settings = eval settings_content
+require 'liquid'
 
 def write_output relative_path, contents
 	output_filename = File.join("../output/", relative_path)
+	puts "write:#{output_filename}"
 	output_dirname = File.dirname(output_filename)
 	if not Dir.exists? output_dirname
 		FileUtils.mkdir_p output_dirname
@@ -20,77 +14,124 @@ def write_output relative_path, contents
 	File.open output_filename, 'wb' do |output_file|
 		output_file.write contents
 	end
+end
+
+class Page
+	attr_reader :markdown
+	attr_reader :meta
+	attr_reader :relative_name
+
+	def initialize filename, root_path
+		relative_filename = Pathname.new(filename).relative_path_from(Pathname.new(root_path)).to_path
+		relative_dirname = File.dirname(filename)
+		@relative_name = relative_filename.chomp(File.extname(relative_filename)) 
+		contents = File.read filename
+		match_data = contents.match /\-\-\-(.*)\-\-\-(.*)/m
+		if match_data.nil?
+			@meta = {}
+			@markdown = contents
+		else
+			meta_string = match_data[1].strip
+			meta_array = meta_string.split /\:|\n/
+			meta_array.map! do |h|
+				h.strip
+			end		
+			@meta = Hash[*meta_array.flatten]
+			@markdown = match_data[2]
+		end
+	end
+end
+
+class BlogArticle
+	attr_reader :published_date
+	attr_reader :blog_id
+
+	def initialize page
+		date_exp = page.relative_name.match /(.*?)\-(.*)/
+		@blog_id = date_exp[2]
+		@published_date = DateTime.strptime date_exp[1], '%Y%m%d'
+	end
+end
+
+class PageDirectory
+	attr_reader :pages
+
+	def initialize root_path
+		search_path = File.join root_path, '**/*.md'
+		filenames = []
+		Dir.glob search_path do |filename|
+			filenames << filename
+		end
+		@pages = []
+		filenames.sort.reverse.each do |filename|
+			page = Page.new filename, root_path
+			@pages << page
+		end
+	end
+end
+
+class PageRender
+	attr_reader :output
+
+	def initialize markdown, meta
+		@output = template markdown, meta
+	end
+	
+	private
+
+	def template code, settings
+		Liquid::Template.parse(code).render settings
+	end
+end
+
+class PageHtmlRender
+	attr_reader :html
+
+	def initialize page
+		@html = render PageRender.new(page.markdown, page.meta).output
+	end
+
+	def render markdown
+		converter = Redcarpet::Markdown.new Redcarpet::Render::HTML
+		converter.render markdown
+	end
+end
+
+pages_directory = '_pages/'
+
+header_page = Page.new File.join(pages_directory, 'header.html'), pages_directory
+footer_page = Page.new File.join(pages_directory,'footer.html'), pages_directory
+page_collection = PageDirectory.new pages_directory
+page_collection.pages.each do |page|
+	header_output = PageRender.new(header_page.markdown, page.meta).output
+	output = header_output + "<article>" + PageHtmlRender.new(page).html + "</article>"
+	write_output page.relative_name + ".html", output
 
 end
 
 
-search_path = File.join pages_directory, '**/*.md'
-Dir.glob search_path do |filename|
-	puts "filename before: #{filename}"
-	relative_dirname = File.dirname(filename)
-	relative_filename = Pathname.new(filename).relative_path_from(Pathname.new(pages_directory)).to_path
-	puts "Filename:#{filename} relative:#{relative_filename}"
-	contents = File.read filename
-	converter =  Redcarpet::Markdown.new Redcarpet::Render::HTML
-	converted = converter.render contents
-	page_name = settings[relative_dirname]
-	if page_name.nil?
-		page_name = File.basename(relative_dirname).capitalize
-	end
-	if page_name != ''
-		page_name = page_name + ' - '
-	end
-	page_name = page_name + "Outbreak Studios"
-	header_output = sprintf( header,  { :page_name => page_name })
-	converted = header_output + converted + footer
-	relative_path = relative_filename.chomp(File.extname(relative_filename)) + '.html'
-	write_output relative_path, converted
-end
+blog_directory = PageDirectory.new '_blog/'
+blog_output = ''
+blog_directory.pages.each do |page|
+	header_output = PageRender.new(header_page.markdown, page.meta).output
 
-blog_directory = '_blog/'
-blog_path = File.join blog_directory, '**/*.md'
+	blog_article = BlogArticle.new page
 
-filenames = Dir.glob blog_path
-filenames = filenames.sort.reverse
-blog_content = ''
-filenames.each do |filename|
-	relative_filename = Pathname.new(filename).relative_path_from(Pathname.new(blog_directory)).to_path
-	puts "blog:#{relative_filename}"
-	contents = File.read filename
-	puts "contents:#{contents}"
-	match_data = contents.match /\-\-\-(.*)\-\-\-(.*)/m
-	puts "match_data:#{match_data}"
+	date_string = blog_article.published_date.strftime '%d %b, %Y'
 
-	meta_string = match_data[1].strip
-	meta_array = meta_string.split /\:|\n/
-	puts "array:#{meta_array}"
-	meta_array.map! do |h|
-		h.strip
-	end
-	meta_hash = Hash[*meta_array.flatten]
-	markdown = match_data[2]
-	puts "meta:#{meta_hash}"
-
-
-	name = File.basename(filename).chomp(File.extname(relative_filename))
-
-	date_exp = name.match /(.*?)\-(.*)/
-	puts "date_exp:#{date_exp[1]} rest:'#{date_exp[2]}'"
-	blog_id = date_exp[2]
-	published_date = DateTime.strptime date_exp[1], '%Y%m%d'
-	date_string = published_date.strftime '%d %b, %Y'
-	puts "published_date:#{date_string}"
-
-	article_header = "<article><h1><a href=\"#{blog_id}/\">#{meta_hash['title']}</a></h1><span>#{date_string}</span>"
+	article_header = "<article><h1><a href=\"/blog/#{blog_article.blog_id}/\">#{page.meta['title']}</a></h1><span>#{date_string}</span>"
 	article_footer = "</article>"
 
-	converter = Redcarpet::Markdown.new Redcarpet::Render::HTML
-	converted = converter.render markdown
+	html_output = PageHtmlRender.new(page).html
 
-	content = article_header + converted + article_footer
+	page_output = article_header + html_output + article_footer
 
-	write_output "blog/#{blog_id}/index.html", header + content + footer
-
-	blog_content += content
+	output = header_output + page_output
+	blog_output += page_output
+	write_output "blog/#{blog_article.blog_id}/index.html", output
 end
-write_output 'blog/index.html', header + blog_content + footer
+
+blog_header_output = PageRender.new(header_page.markdown, {'title' => 'Blog'}).output
+write_output "blog/index.html", blog_header_output + blog_output
+
+FileUtils.cp_r '_raw/.', '../output/'
