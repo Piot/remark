@@ -101,10 +101,38 @@ pages_directory = '_pages/'
 
 header_page = Page.new File.join(pages_directory, 'header.html'), pages_directory
 footer_page = Page.new File.join(pages_directory,'footer.html'), pages_directory
+footer_output = footer_page.markdown
+
 page_collection = PageDirectory.new pages_directory
 page_collection.pages.each do |page|
 	header_output = PageRender.new(header_page.markdown, page.meta).output
-	output = header_output + "<article>" + PageHtmlRender.new(page).html + "</article>"
+	html_output = ''
+	title = page.meta['title']
+	html_output += "<h1>#{title}</h1>\n"
+
+	if page.meta.has_key? 'youtube_id'
+		youtube_id = page.meta['youtube_id']
+		youtube_frame = "<iframe src=\"http://www.youtube.com/embed/#{youtube_id}\" width=\"640\" height=\"360\" frameborder=\"0\" allowfullscreen></iframe>"
+		puts "YOUTUBE: #{youtube_frame.inspect}"
+		html_output += youtube_frame
+	end
+	html_output += PageHtmlRender.new(page).html
+	if page.meta.has_key? 'ios_app_id'
+		app_id = page.meta['ios_app_id']
+		itunes_link = "http://itunes.apple.com/app/id#{app_id}"
+		html_output += "<a href=\"#{itunes_link}\"><img src=\"/images/download_on_the_app_store_eng.png\" /></a>"
+	end
+	if page.meta.has_key? 'developer'
+		developer = page.meta['developer']
+		co_developer = page.meta['co-developer']
+		publisher = page.meta['publisher']
+		html_output += "<div class=\"game_information\"><table>"
+		html_output += "<tr><td align=\"right\">Developer</td><td>#{developer}</td></tr>"
+		html_output += "<tr><td align=\"right\">Co-Developer</td><td>#{co_developer}</td></tr>"
+		html_output += "<tr><td align=\"right\">Publisher</td><td>#{publisher}</td></tr>"
+		html_output += "</table></div>"
+	end
+	output = header_output + "<article>" + html_output + "</article>" + footer_output
 	write_output page.relative_name + ".html", output
 
 end
@@ -119,19 +147,19 @@ blog_directory.pages.each do |page|
 
 	date_string = blog_article.published_date.strftime '%d %b, %Y'
 
-	article_header = "<article><h1><a href=\"/blog/#{blog_article.blog_id}/\">#{page.meta['title']}</a></h1><span>#{date_string}</span>"
+	article_header = "<article><h1><a href=\"/blog/#{blog_article.blog_id}/\">#{page.meta['title']}</a></h1><span><span class=\"icon-calendar-empty\"></span>#{date_string}</span>"
 	article_footer = "</article>"
 
 	html_output = PageHtmlRender.new(page).html
 
 	page_output = article_header + html_output + article_footer
 
-	output = header_output + page_output
+	output = header_output + page_output + footer_output
 	blog_output += page_output
 	write_output "blog/#{blog_article.blog_id}/index.html", output
 end
 
 blog_header_output = PageRender.new(header_page.markdown, {'title' => 'Blog'}).output
-write_output "blog/index.html", blog_header_output + blog_output
+write_output "blog/index.html", blog_header_output + blog_output + footer_output
 
 FileUtils.cp_r '_raw/.', '../output/'
