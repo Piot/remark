@@ -1,0 +1,15 @@
+GEM
+  remote: https://rubygems.org/
+  specs:
+    liquid (3.0.6)
+    redcarpet (3.3.4)
+
+PLATFORMS
+  ruby
+
+DEPENDENCIES
+  liquid (>= 2.6.1)
+  redcarpet (>= 3.1.1)
+
+BUNDLED WITH
+   1.11.2
