@@ -3,6 +3,17 @@ require 'fileutils'
 require 'pathname'
 require 'date'
 require 'liquid'
+require 'optparse'
+
+def parse_arguments 
+	options = {}
+	OptionParser.new do |opt|
+	opt.on('--prefix PREFIX') { |o| options[:prefix] = o }
+	end.parse!
+
+	puts options
+	options
+end
 
 def write_output relative_path, contents
 	output_filename = File.join("../output/", relative_path)
@@ -21,7 +32,7 @@ class Page
 	attr_reader :meta
 	attr_reader :relative_name
 
-	def initialize filename, root_path
+	def initialize filename, root_path, meta
 		relative_filename = Pathname.new(filename).relative_path_from(Pathname.new(root_path)).to_path
 		relative_dirname = File.dirname(filename)
 		@relative_name = relative_filename.chomp(File.extname(relative_filename)) 
@@ -39,6 +50,7 @@ class Page
 			@meta = Hash[*meta_array.flatten]
 			@markdown = match_data[2]
 		end
+		@meta = @meta.merge  meta
 	end
 end
 
@@ -56,7 +68,7 @@ end
 class PageDirectory
 	attr_reader :pages
 
-	def initialize root_path
+	def initialize root_path, meta
 		search_path = File.join root_path, '**/*.md'
 		filenames = []
 		Dir.glob search_path do |filename|
@@ -64,7 +76,7 @@ class PageDirectory
 		end
 		@pages = []
 		filenames.sort.reverse.each do |filename|
-			page = Page.new filename, root_path
+			page = Page.new filename, root_path, meta
 			@pages << page
 		end
 	end
@@ -74,6 +86,7 @@ class PageRender
 	attr_reader :output
 
 	def initialize markdown, meta
+		puts "page render meta", meta
 		@output = template markdown, meta
 	end
 	
@@ -97,13 +110,19 @@ class PageHtmlRender
 	end
 end
 
+options = parse_arguments()
+prefix = options[:prefix]
+puts "raw prefix", prefix
+puts ""
 pages_directory = '_pages/'
-
-header_page = Page.new File.join(pages_directory, 'header.html'), pages_directory
-footer_page = Page.new File.join(pages_directory,'footer.html'), pages_directory
+page_options = {}
+page_options ['prefix'] = prefix
+puts "raw prefix 2", page_options
+header_page = Page.new File.join(pages_directory, 'header.html'), pages_directory, page_options
+footer_page = Page.new File.join(pages_directory, 'footer.html'), pages_directory, page_options
 footer_output = footer_page.markdown
 
-page_collection = PageDirectory.new pages_directory
+page_collection = PageDirectory.new pages_directory, page_options
 page_collection.pages.each do |page|
 	header_output = PageRender.new(header_page.markdown, page.meta).output
 	html_output = ''
@@ -112,14 +131,14 @@ page_collection.pages.each do |page|
 
 	if page.meta.has_key? 'youtube_id'
 		youtube_id = page.meta['youtube_id']
-		youtube_frame = "<iframe src=\"http://www.youtube.com/embed/#{youtube_id}\" width=\"640\" height=\"360\" frameborder=\"0\" allowfullscreen></iframe>"
+		youtube_frame = "<iframe src=\"https://www.youtube.com/embed/#{youtube_id}\" width=\"640\" height=\"360\" frameborder=\"0\" allowfullscreen></iframe>"
 		puts "YOUTUBE: #{youtube_frame.inspect}"
 		html_output += youtube_frame
 	end
 	html_output += PageHtmlRender.new(page).html
 	if page.meta.has_key? 'ios_app_id'
 		app_id = page.meta['ios_app_id']
-		itunes_link = "http://itunes.apple.com/app/id#{app_id}"
+		itunes_link = "https://itunes.apple.com/app/id#{app_id}"
 		html_output += "<a href=\"#{itunes_link}\"><img src=\"/images/download_on_the_app_store_eng.png\" /></a>"
 	end
 	if page.meta.has_key? 'developer'
@@ -138,7 +157,7 @@ page_collection.pages.each do |page|
 end
 
 
-blog_directory = PageDirectory.new '_blog/'
+blog_directory = PageDirectory.new '_blog/', page_options
 blog_output = ''
 blog_directory.pages.each do |page|
 	header_output = PageRender.new(header_page.markdown, page.meta).output
@@ -159,7 +178,9 @@ blog_directory.pages.each do |page|
 	write_output "blog/#{blog_article.blog_id}/index.html", output
 end
 
-blog_header_output = PageRender.new(header_page.markdown, {'title' => 'Blog'}).output
+blog_meta = header_page.meta
+blog_meta ['title'] = 'Blog'
+blog_header_output = PageRender.new(header_page.markdown,blog_meta).output
 write_output "blog/index.html", blog_header_output + blog_output + footer_output
 
 FileUtils.cp_r '_raw/.', '../output/'
